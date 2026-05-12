@@ -3,6 +3,13 @@ import axios from "axios"
 
 const API_URL = import.meta.env.VITE_API_URL
 
+const CATEGORIE_LABELS = {
+  bar: "BAR",
+  restaurant: "RESTO",
+  cinema: "CINÉMA",
+  parc: "PARC",
+}
+
 function EventDetail({ event, onClose }) {
   const [comments, setComments] = useState([])
   const [contenu, setContenu] = useState("")
@@ -45,78 +52,315 @@ function EventDetail({ event, onClose }) {
   const formatDate = (date) => {
     if (!date) return ""
     return new Date(date).toLocaleDateString("fr-FR", {
-      day: "numeric", month: "long", year: "numeric",
+      day: "numeric", month: "short",
       hour: "2-digit", minute: "2-digit"
     })
   }
 
-  return (
-    <div className="w-96 border-l border-neutral-800 bg-neutral-950 flex flex-col overflow-hidden">
+  const initials = (name) => name?.charAt(0).toUpperCase() || "?"
 
+  return (
+    <div style={styles.panel}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
-        <span className="text-xs bg-neutral-800 text-amber-400 px-2 py-1 rounded-full font-semibold uppercase">
-          {event.categorie}
+      <div style={styles.header}>
+        <span style={styles.catTag}>
+          {CATEGORIE_LABELS[event.categorie] || event.categorie}
         </span>
-        <button
-          onClick={onClose}
-          className="text-neutral-500 hover:text-white text-xl leading-none cursor-pointer"
-        >
+        <button onClick={onClose} style={styles.closeBtn}>
           ✕
         </button>
       </div>
 
-      {/* Détails */}
-      <div className="px-4 py-4 border-b border-neutral-800">
-        <h2 className="text-white font-bold text-lg mb-1">{event.titre}</h2>
-        <p className="text-neutral-400 text-sm mb-3">{event.description}</p>
+      {/* Event info */}
+      <div style={styles.body}>
+        {/* Author */}
+        <div style={styles.authorRow}>
+          <div style={styles.avatar}>{initials(event.auteur)}</div>
+          <div>
+            <p style={styles.authorName}>{event.auteur}</p>
+            <p style={styles.authorDate}>{formatDate(event.created_at)}</p>
+          </div>
+        </div>
+
+        <h2 style={styles.title}>{event.titre}</h2>
+        <p style={styles.desc}>{event.description}</p>
+
         {event.adresse && (
-          <p className="text-neutral-500 text-xs mb-1">📍 {event.adresse}</p>
+          <div style={styles.metaRow}>
+            <span style={styles.metaIcon}>◎</span>
+            <span style={styles.metaText}>{event.adresse}</span>
+          </div>
         )}
         {event.date_event && (
-          <p className="text-neutral-500 text-xs mb-1">📅 {formatDate(event.date_event)}</p>
-        )}
-        <p className="text-neutral-600 text-xs mt-2">Publié par {event.auteur}</p>
-      </div>
-
-      {/* Commentaires */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-3">
-        <h3 className="text-white font-semibold text-sm">
-          Commentaires ({comments.length})
-        </h3>
-        {comments.length === 0 && (
-          <p className="text-neutral-600 text-sm">Sois le premier à commenter !</p>
-        )}
-        {comments.map(comment => (
-          <div key={comment.id} className="bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-amber-400 text-xs font-semibold">{comment.auteur}</span>
-              <span className="text-neutral-600 text-xs">{formatDate(comment.created_at)}</span>
-            </div>
-            <p className="text-neutral-300 text-sm">{comment.contenu}</p>
+          <div style={styles.metaRow}>
+            <span style={styles.metaIcon}>◷</span>
+            <span style={styles.metaText}>{formatDate(event.date_event)}</span>
           </div>
-        ))}
+        )}
+
+        <div style={styles.divider} />
+
+        {/* Comments */}
+        <div style={styles.commentsHeader}>
+          <span style={styles.commentsLabel}>COMMENTAIRES</span>
+          <span style={styles.commentCount}>{comments.length}</span>
+        </div>
+
+        <div style={styles.commentsList}>
+          {comments.length === 0 && (
+            <p style={styles.emptyComments}>Sois le premier à commenter</p>
+          )}
+          {comments.map(comment => (
+            <div key={comment.id} style={styles.commentCard}>
+              <div style={styles.commentTop}>
+                <div style={styles.commentAvatar}>{initials(comment.auteur)}</div>
+                <span style={styles.commentAuthor}>{comment.auteur}</span>
+                <span style={styles.commentDate}>{formatDate(comment.created_at)}</span>
+              </div>
+              <p style={styles.commentText}>{comment.contenu}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Formulaire commentaire */}
-      <form onSubmit={handleComment} className="px-4 py-3 border-t border-neutral-800 flex gap-2">
+      {/* Comment form */}
+      <form onSubmit={handleComment} style={styles.commentForm}>
         <input
           type="text"
-          placeholder="Ajouter un commentaire..."
+          placeholder="Ajoute un commentaire..."
           value={contenu}
           onChange={e => setContenu(e.target.value)}
-          className="flex-1 bg-neutral-800 border border-neutral-700 text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-400"
+          style={styles.commentInput}
+          onFocus={e => e.target.style.borderColor = "#2563eb"}
+          onBlur={e => e.target.style.borderColor = "#1f2937"}
         />
         <button
           type="submit"
           disabled={loading}
-          className="bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-neutral-950 font-bold rounded-lg px-4 py-2 text-sm transition cursor-pointer"
+          style={{
+            ...styles.sendBtn,
+            opacity: loading ? 0.5 : 1,
+          }}
         >
           →
         </button>
       </form>
     </div>
   )
+}
+
+const styles = {
+  panel: {
+    width: "360px",
+    minWidth: "360px",
+    background: "#050508",
+    borderLeft: "1px solid #1f2937",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    fontFamily: "'DM Sans', 'Helvetica Neue', sans-serif",
+  },
+  header: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "16px 20px",
+    borderBottom: "1px solid #1f2937",
+  },
+  catTag: {
+    fontSize: "10px",
+    fontWeight: "700",
+    letterSpacing: "2px",
+    color: "#2563eb",
+    background: "rgba(37,99,235,0.1)",
+    border: "1px solid rgba(37,99,235,0.2)",
+    padding: "4px 10px",
+    borderRadius: "4px",
+  },
+  closeBtn: {
+    background: "none",
+    border: "none",
+    color: "#4b5563",
+    fontSize: "16px",
+    cursor: "pointer",
+    padding: "4px",
+    lineHeight: 1,
+    transition: "color 0.2s",
+  },
+  body: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "20px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "0",
+  },
+  authorRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    marginBottom: "16px",
+  },
+  avatar: {
+    width: "32px",
+    height: "32px",
+    borderRadius: "50%",
+    background: "#2563eb",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#fff",
+    fontSize: "13px",
+    fontWeight: "700",
+    flexShrink: 0,
+  },
+  authorName: {
+    color: "#e5e7eb",
+    fontSize: "13px",
+    fontWeight: "600",
+    margin: 0,
+  },
+  authorDate: {
+    color: "#4b5563",
+    fontSize: "11px",
+    margin: 0,
+    marginTop: "1px",
+  },
+  title: {
+    color: "#ffffff",
+    fontSize: "18px",
+    fontWeight: "800",
+    margin: "0 0 10px 0",
+    lineHeight: 1.3,
+  },
+  desc: {
+    color: "#9ca3af",
+    fontSize: "14px",
+    lineHeight: 1.6,
+    margin: "0 0 14px 0",
+  },
+  metaRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "6px",
+  },
+  metaIcon: {
+    color: "#2563eb",
+    fontSize: "14px",
+    lineHeight: 1,
+  },
+  metaText: {
+    color: "#6b7280",
+    fontSize: "12px",
+  },
+  divider: {
+    height: "1px",
+    background: "#1f2937",
+    margin: "20px 0",
+  },
+  commentsHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: "12px",
+  },
+  commentsLabel: {
+    fontSize: "10px",
+    fontWeight: "700",
+    letterSpacing: "2px",
+    color: "#4b5563",
+  },
+  commentCount: {
+    fontSize: "11px",
+    color: "#2563eb",
+    background: "rgba(37,99,235,0.12)",
+    padding: "2px 8px",
+    borderRadius: "999px",
+    fontWeight: "700",
+  },
+  commentsList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  emptyComments: {
+    color: "#374151",
+    fontSize: "13px",
+    margin: 0,
+  },
+  commentCard: {
+    background: "#0d0d14",
+    border: "1px solid #1f2937",
+    borderRadius: "10px",
+    padding: "12px",
+  },
+  commentTop: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "6px",
+  },
+  commentAvatar: {
+    width: "22px",
+    height: "22px",
+    borderRadius: "50%",
+    background: "#1f2937",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#6b7280",
+    fontSize: "10px",
+    fontWeight: "700",
+    flexShrink: 0,
+  },
+  commentAuthor: {
+    color: "#d1d5db",
+    fontSize: "12px",
+    fontWeight: "600",
+    flex: 1,
+  },
+  commentDate: {
+    color: "#374151",
+    fontSize: "10px",
+  },
+  commentText: {
+    color: "#9ca3af",
+    fontSize: "13px",
+    margin: 0,
+    lineHeight: 1.5,
+  },
+  commentForm: {
+    padding: "16px 20px",
+    borderTop: "1px solid #1f2937",
+    display: "flex",
+    gap: "8px",
+    background: "#050508",
+  },
+  commentInput: {
+    flex: 1,
+    background: "#0d0d14",
+    border: "1px solid #1f2937",
+    borderRadius: "8px",
+    padding: "10px 14px",
+    color: "#fff",
+    fontSize: "13px",
+    outline: "none",
+    transition: "border-color 0.2s",
+    fontFamily: "inherit",
+  },
+  sendBtn: {
+    background: "#2563eb",
+    color: "#fff",
+    border: "none",
+    borderRadius: "8px",
+    padding: "10px 16px",
+    fontSize: "16px",
+    cursor: "pointer",
+    fontWeight: "700",
+    transition: "opacity 0.2s",
+    boxShadow: "0 0 12px rgba(37,99,235,0.3)",
+  },
 }
 
 export default EventDetail
