@@ -3,12 +3,24 @@ import axios from "axios"
 
 const API_URL = import.meta.env.VITE_API_URL
 
-const CATEGORIE_LABELS = {
-  bar: "BAR",
-  restaurant: "RESTO",
-  cinema: "CINÉMA",
-  parc: "PARC",
+const GREEN = "#1D9E75"
+const GREEN_DARK = "#0F6E56"
+const GREEN_LIGHT = "#E1F5EE"
+const GREEN_MID = "#5DCAA5"
+
+const CAT_COLORS = {
+  bar:        { bg: "#E6F1FB", color: "#0C447C", border: "#A8CBF0" },
+  restaurant: { bg: "#E1F5EE", color: "#085041", border: "#5DCAA5" },
+  cinema:     { bg: "#EEEDFE", color: "#3C3489", border: "#B0ACEF" },
+  parc:       { bg: "#EAF3DE", color: "#27500A", border: "#90C060" },
 }
+
+const AVATAR_COLORS = [
+  { bg: "#E1F5EE", color: "#085041" },
+  { bg: "#E6F1FB", color: "#0C447C" },
+  { bg: "#FAEEDA", color: "#633806" },
+  { bg: "#EEEDFE", color: "#3C3489" },
+]
 
 function EventDetail({ event, onClose }) {
   const [comments, setComments] = useState([])
@@ -16,17 +28,13 @@ function EventDetail({ event, onClose }) {
   const [loading, setLoading] = useState(false)
   const user = JSON.parse(localStorage.getItem("user") || "{}")
 
-  useEffect(() => {
-    fetchComments()
-  }, [event.id])
+  useEffect(() => { fetchComments() }, [event.id])
 
   const fetchComments = async () => {
     try {
       const res = await axios.get(`${API_URL}/api/events/${event.id}/comments`)
       setComments(res.data)
-    } catch (err) {
-      console.log(err)
-    }
+    } catch (err) { console.log(err) }
   }
 
   const handleComment = async (e) => {
@@ -42,324 +50,225 @@ function EventDetail({ event, onClose }) {
       )
       setContenu("")
       fetchComments()
-    } catch (err) {
-      console.log(err)
-    } finally {
-      setLoading(false)
-    }
+    } catch (err) { console.log(err) }
+    finally { setLoading(false) }
   }
 
   const formatDate = (date) => {
     if (!date) return ""
-    return new Date(date).toLocaleDateString("fr-FR", {
-      day: "numeric", month: "short",
-      hour: "2-digit", minute: "2-digit"
-    })
+    const d = new Date(date)
+    const diff = Math.floor((Date.now() - d) / 60000)
+    if (diff < 60) return `Il y a ${diff}min`
+    if (diff < 1440) return `Il y a ${Math.floor(diff / 60)}h`
+    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })
   }
 
-  const initials = (name) => name?.charAt(0).toUpperCase() || "?"
+  const initials = (name) => name?.slice(0, 2).toUpperCase() || "?"
+  const avatarColor = (name) => AVATAR_COLORS[(name?.charCodeAt(0) || 0) % AVATAR_COLORS.length]
+  const cs = CAT_COLORS[event.categorie] || { bg: "#F3F4F6", color: "#4B5563", border: "#D1D5DB" }
 
   return (
-    <div style={styles.panel}>
+    <div style={s.panel}>
       {/* Header */}
-      <div style={styles.header}>
-        <span style={styles.catTag}>
-          {CATEGORIE_LABELS[event.categorie] || event.categorie}
-        </span>
-        <button onClick={onClose} style={styles.closeBtn}>
-          ✕
-        </button>
+      <div style={s.header}>
+        <div style={{ ...s.catTag, background: cs.bg, color: cs.color, border: `0.5px solid ${cs.border}` }}>
+          {event.categorie?.toUpperCase()}
+        </div>
+        <button onClick={onClose} style={s.closeBtn}>✕</button>
       </div>
 
-      {/* Event info */}
-      <div style={styles.body}>
+      {/* Scrollable body */}
+      <div style={s.body}>
         {/* Author */}
-        <div style={styles.authorRow}>
-          <div style={styles.avatar}>{initials(event.auteur)}</div>
+        <div style={s.authorRow}>
+          <div style={{ ...s.avatar, background: GREEN_LIGHT, color: GREEN_DARK }}>
+            {initials(event.auteur)}
+          </div>
           <div>
-            <p style={styles.authorName}>{event.auteur}</p>
-            <p style={styles.authorDate}>{formatDate(event.created_at)}</p>
+            <p style={s.authorName}>{event.auteur}</p>
+            <p style={s.authorDate}>{formatDate(event.created_at)}</p>
           </div>
         </div>
 
-        <h2 style={styles.title}>{event.titre}</h2>
-        <p style={styles.desc}>{event.description}</p>
+        <h2 style={s.title}>{event.titre}</h2>
+        <p style={s.desc}>{event.description}</p>
 
         {event.adresse && (
-          <div style={styles.metaRow}>
-            <span style={styles.metaIcon}>◎</span>
-            <span style={styles.metaText}>{event.adresse}</span>
+          <div style={s.metaRow}>
+            <span style={s.metaIcon}>📍</span>
+            <span style={s.metaText}>{event.adresse}</span>
           </div>
         )}
         {event.date_event && (
-          <div style={styles.metaRow}>
-            <span style={styles.metaIcon}>◷</span>
-            <span style={styles.metaText}>{formatDate(event.date_event)}</span>
+          <div style={s.metaRow}>
+            <span style={s.metaIcon}>🕐</span>
+            <span style={s.metaText}>{formatDate(event.date_event)}</span>
           </div>
         )}
 
-        <div style={styles.divider} />
+        <div style={s.divider} />
 
         {/* Comments */}
-        <div style={styles.commentsHeader}>
-          <span style={styles.commentsLabel}>COMMENTAIRES</span>
-          <span style={styles.commentCount}>{comments.length}</span>
+        <div style={s.commentsHeader}>
+          <span style={s.commentsLabel}>
+            <span style={{ fontSize: 13, marginRight: 5 }}>💬</span>
+            Ce que disent les gens
+          </span>
+          <span style={s.commentCount}>{comments.length}</span>
         </div>
 
-        <div style={styles.commentsList}>
+        <div style={s.commentsList}>
           {comments.length === 0 && (
-            <p style={styles.emptyComments}>Sois le premier à commenter</p>
+            <p style={s.emptyComments}>Sois le premier à commenter</p>
           )}
-          {comments.map(comment => (
-            <div key={comment.id} style={styles.commentCard}>
-              <div style={styles.commentTop}>
-                <div style={styles.commentAvatar}>{initials(comment.auteur)}</div>
-                <span style={styles.commentAuthor}>{comment.auteur}</span>
-                <span style={styles.commentDate}>{formatDate(comment.created_at)}</span>
+          {comments.map((comment, idx) => {
+            const ac = avatarColor(comment.auteur)
+            return (
+              <div key={comment.id} style={s.commentCard}>
+                <div style={s.commentTop}>
+                  <div style={{ ...s.commentAvatar, background: ac.bg, color: ac.color }}>
+                    {initials(comment.auteur)}
+                  </div>
+                  <span style={s.commentAuthor}>{comment.auteur}</span>
+                  <span style={s.commentDate}>{formatDate(comment.created_at)}</span>
+                </div>
+                <p style={s.commentText}>{comment.contenu}</p>
               </div>
-              <p style={styles.commentText}>{comment.contenu}</p>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
-      {/* Comment form */}
-      <form onSubmit={handleComment} style={styles.commentForm}>
+      {/* Comment input */}
+      <div style={s.commentForm}>
+        <div style={{ ...s.commentAvatar, background: GREEN_LIGHT, color: GREEN_DARK, flexShrink: 0 }}>
+          {initials(user.nom)}
+        </div>
         <input
           type="text"
-          placeholder="Ajoute un commentaire..."
+          placeholder="Laisser un avis…"
           value={contenu}
           onChange={e => setContenu(e.target.value)}
-          style={styles.commentInput}
-          onFocus={e => e.target.style.borderColor = "#2563eb"}
-          onBlur={e => e.target.style.borderColor = "#1f2937"}
+          onKeyDown={e => e.key === "Enter" && handleComment(e)}
+          style={s.commentInput}
         />
         <button
-          type="submit"
+          onClick={handleComment}
           disabled={loading}
-          style={{
-            ...styles.sendBtn,
-            opacity: loading ? 0.5 : 1,
-          }}
+          style={{ ...s.sendBtn, opacity: loading ? 0.5 : 1 }}
         >
-          →
+          <span style={{ fontSize: 14 }}>→</span>
         </button>
-      </form>
+      </div>
     </div>
   )
 }
 
-const styles = {
+const s = {
   panel: {
-    width: "360px",
-    minWidth: "360px",
-    background: "#050508",
-    borderLeft: "1px solid #1f2937",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    fontFamily: "'DM Sans', 'Helvetica Neue', sans-serif",
+    width: 380, minWidth: 380,
+    background: "var(--color-background-primary, #fff)",
+    borderLeft: "0.5px solid var(--color-border-tertiary, #e5e7eb)",
+    borderRadius: 20,
+    display: "flex", flexDirection: "column", overflow: "hidden",
+    fontFamily: "'DM Sans', system-ui, sans-serif",
+    maxHeight: "90vh",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.12)",
   },
   header: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "16px 20px",
-    borderBottom: "1px solid #1f2937",
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    padding: "14px 16px",
+    borderBottom: "0.5px solid var(--color-border-tertiary, #e5e7eb)",
   },
   catTag: {
-    fontSize: "10px",
-    fontWeight: "700",
-    letterSpacing: "2px",
-    color: "#2563eb",
-    background: "rgba(37,99,235,0.1)",
-    border: "1px solid rgba(37,99,235,0.2)",
-    padding: "4px 10px",
-    borderRadius: "4px",
+    fontSize: 10, fontWeight: 600, letterSpacing: 1.5,
+    padding: "4px 10px", borderRadius: 100,
   },
   closeBtn: {
-    background: "none",
-    border: "none",
-    color: "#4b5563",
-    fontSize: "16px",
-    cursor: "pointer",
-    padding: "4px",
-    lineHeight: 1,
-    transition: "color 0.2s",
+    background: "none", border: "none",
+    color: "var(--color-text-secondary, #9ca3af)",
+    fontSize: 16, cursor: "pointer", padding: 4, lineHeight: 1,
+    borderRadius: 8,
   },
   body: {
-    flex: 1,
-    overflowY: "auto",
-    padding: "20px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "0",
+    flex: 1, overflowY: "auto", padding: 16,
+    display: "flex", flexDirection: "column", gap: 0,
   },
-  authorRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    marginBottom: "16px",
-  },
+  authorRow: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 },
   avatar: {
-    width: "32px",
-    height: "32px",
-    borderRadius: "50%",
-    background: "#2563eb",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    fontSize: "13px",
-    fontWeight: "700",
-    flexShrink: 0,
+    width: 34, height: 34, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 12, fontWeight: 600, flexShrink: 0,
   },
-  authorName: {
-    color: "#e5e7eb",
-    fontSize: "13px",
-    fontWeight: "600",
-    margin: 0,
-  },
-  authorDate: {
-    color: "#4b5563",
-    fontSize: "11px",
-    margin: 0,
-    marginTop: "1px",
-  },
+  authorName: { color: "var(--color-text-primary, #111)", fontSize: 13, fontWeight: 600, margin: 0 },
+  authorDate: { color: "var(--color-text-tertiary, #9ca3af)", fontSize: 11, margin: 0, marginTop: 1 },
   title: {
-    color: "#ffffff",
-    fontSize: "18px",
-    fontWeight: "800",
-    margin: "0 0 10px 0",
-    lineHeight: 1.3,
+    color: "var(--color-text-primary, #111)", fontSize: 18, fontWeight: 600,
+    margin: "0 0 10px 0", lineHeight: 1.3,
   },
   desc: {
-    color: "#9ca3af",
-    fontSize: "14px",
-    lineHeight: 1.6,
-    margin: "0 0 14px 0",
+    color: "var(--color-text-secondary, #6b7280)", fontSize: 14,
+    lineHeight: 1.6, margin: "0 0 12px 0",
   },
-  metaRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    marginBottom: "6px",
-  },
-  metaIcon: {
-    color: "#2563eb",
-    fontSize: "14px",
-    lineHeight: 1,
-  },
-  metaText: {
-    color: "#6b7280",
-    fontSize: "12px",
-  },
+  metaRow: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 },
+  metaIcon: { fontSize: 14, lineHeight: 1 },
+  metaText: { color: "var(--color-text-secondary, #6b7280)", fontSize: 12 },
   divider: {
-    height: "1px",
-    background: "#1f2937",
-    margin: "20px 0",
+    height: "0.5px",
+    background: "var(--color-border-tertiary, #e5e7eb)",
+    margin: "16px 0",
   },
   commentsHeader: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: "12px",
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    marginBottom: 12,
   },
   commentsLabel: {
-    fontSize: "10px",
-    fontWeight: "700",
-    letterSpacing: "2px",
-    color: "#4b5563",
+    fontSize: 12, fontWeight: 500,
+    color: "var(--color-text-secondary, #6b7280)",
+    display: "flex", alignItems: "center",
   },
   commentCount: {
-    fontSize: "11px",
-    color: "#2563eb",
-    background: "rgba(37,99,235,0.12)",
-    padding: "2px 8px",
-    borderRadius: "999px",
-    fontWeight: "700",
+    fontSize: 11, color: GREEN_DARK,
+    background: GREEN_LIGHT,
+    padding: "2px 8px", borderRadius: 100, fontWeight: 600,
   },
-  commentsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
-  },
-  emptyComments: {
-    color: "#374151",
-    fontSize: "13px",
-    margin: 0,
-  },
+  commentsList: { display: "flex", flexDirection: "column", gap: 8 },
+  emptyComments: { color: "var(--color-text-tertiary, #9ca3af)", fontSize: 13, margin: 0 },
   commentCard: {
-    background: "#0d0d14",
-    border: "1px solid #1f2937",
-    borderRadius: "10px",
-    padding: "12px",
+    background: "var(--color-background-secondary, #f9fafb)",
+    border: "0.5px solid var(--color-border-tertiary, #e5e7eb)",
+    borderRadius: 12, padding: "10px 12px",
   },
-  commentTop: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    marginBottom: "6px",
-  },
+  commentTop: { display: "flex", alignItems: "center", gap: 8, marginBottom: 6 },
   commentAvatar: {
-    width: "22px",
-    height: "22px",
-    borderRadius: "50%",
-    background: "#1f2937",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#6b7280",
-    fontSize: "10px",
-    fontWeight: "700",
-    flexShrink: 0,
+    width: 28, height: 28, borderRadius: "50%",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 10, fontWeight: 600, flexShrink: 0,
   },
-  commentAuthor: {
-    color: "#d1d5db",
-    fontSize: "12px",
-    fontWeight: "600",
-    flex: 1,
-  },
-  commentDate: {
-    color: "#374151",
-    fontSize: "10px",
-  },
-  commentText: {
-    color: "#9ca3af",
-    fontSize: "13px",
-    margin: 0,
-    lineHeight: 1.5,
-  },
+  commentAuthor: { color: "var(--color-text-primary, #111)", fontSize: 12, fontWeight: 600, flex: 1 },
+  commentDate: { color: "var(--color-text-tertiary, #9ca3af)", fontSize: 10 },
+  commentText: { color: "var(--color-text-secondary, #6b7280)", fontSize: 13, margin: 0, lineHeight: 1.5 },
   commentForm: {
-    padding: "16px 20px",
-    borderTop: "1px solid #1f2937",
-    display: "flex",
-    gap: "8px",
-    background: "#050508",
+    padding: "12px 16px",
+    borderTop: "0.5px solid var(--color-border-tertiary, #e5e7eb)",
+    display: "flex", alignItems: "center", gap: 8,
+    background: "var(--color-background-primary, #fff)",
   },
   commentInput: {
     flex: 1,
-    background: "#0d0d14",
-    border: "1px solid #1f2937",
-    borderRadius: "8px",
-    padding: "10px 14px",
-    color: "#fff",
-    fontSize: "13px",
-    outline: "none",
-    transition: "border-color 0.2s",
+    background: "var(--color-background-secondary, #f9fafb)",
+    border: "0.5px solid var(--color-border-secondary, #e5e7eb)",
+    borderRadius: 100, padding: "8px 14px",
+    color: "var(--color-text-primary, #111)",
+    fontSize: 13, outline: "none",
     fontFamily: "inherit",
   },
   sendBtn: {
-    background: "#2563eb",
-    color: "#fff",
-    border: "none",
-    borderRadius: "8px",
-    padding: "10px 16px",
-    fontSize: "16px",
-    cursor: "pointer",
-    fontWeight: "700",
-    transition: "opacity 0.2s",
-    boxShadow: "0 0 12px rgba(37,99,235,0.3)",
+    background: GREEN, color: "#fff", border: "none",
+    borderRadius: "50%", width: 34, height: 34,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    cursor: "pointer", flexShrink: 0,
+    boxShadow: `0 2px 8px rgba(29,158,117,0.35)`,
   },
 }
 
