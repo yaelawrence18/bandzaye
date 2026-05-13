@@ -94,6 +94,7 @@ function Login() {
               />
             </div>
 
+
             <button
               type="submit"
               disabled={loading}
@@ -112,6 +113,7 @@ function Login() {
           <p style={styles.footer}>
             Pas encore de compte ?{" "}
             <Link to="/register" style={styles.link}>Inscription</Link>
+            <Link to="/forgot-password" style={styles.link}>Mot de passe oublié ?</Link>
           </p>
         </div>
       </div>

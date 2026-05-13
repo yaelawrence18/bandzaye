@@ -1,84 +1,90 @@
-const express = require("express")
-const bcrypt = require("bcrypt")
-const jwt = require("jsonwebtoken")
-const db = require("../db")
+const crypto = require("crypto")
+const { sendVerificationEmail, sendResetPasswordEmail } = require("../services/emailService")
 
-const router = express.Router()
+// Génère un token sécurisé
+function generateToken() {
+  return crypto.randomBytes(32).toString("hex")
+}
 
+// Sauvegarde un token en DB
+function saveToken(userId, token, type, expiresInHours) {
+  return new Promise((resolve, reject) => {
+    const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
+    const query = "INSERT INTO auth_tokens (user_id, token, type, expires_at) VALUES (?, ?, ?, ?)"
+    db.query(query, [userId, token, type, expiresAt], (err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
+}
+
+// ─── REGISTER : envoie un email de vérification ───────────────────
 router.post("/register", async (req, res) => {
-  try {
-    const { username, email, password } = req.body
+  // ... ton code existant jusqu'à l'insertion ...
+  db.query(insertQuery, [username, email, hashedPassword], async (err, result) => {
+    if (err) return res.status(500).json({ message: "Erreur insertion utilisateur" })
 
-    if (!username || !email || !password) {
-      return res.status(400).json({ message: "Tous les champs sont obligatoires" })
-    }
+    // Nouveau : envoie l'email de vérification
+    const token = generateToken()
+    await saveToken(result.insertId, token, "verify_email", 24)
+    await sendVerificationEmail(email, token)
 
-    const checkQuery = "SELECT * FROM users WHERE email = ?"
-
-    db.query(checkQuery, [email], async (err, result) => {
-      if (err) return res.status(500).json({ message: "Erreur serveur" })
-
-      if (result.length > 0) {
-        return res.status(400).json({ message: "Email déjà utilisé" })
-      }
-
-      const hashedPassword = await bcrypt.hash(password, 10)
-      const insertQuery = "INSERT INTO users (nom, email, password) VALUES (?, ?, ?)"
-
-      db.query(insertQuery, [username, email, hashedPassword], (err, result) => {
-        if (err) {
-          console.log(err)
-          return res.status(500).json({ message: "Erreur insertion utilisateur" })
-        }
-        res.status(201).json({ message: "Compte créé avec succès" })
-      })
-    })
-  } catch (error) {
-    console.log(error)
-    res.status(500).json({ message: "Erreur serveur" })
-  }
+    res.status(201).json({ message: "Compte créé. Vérifie ton email pour l'activer." })
+  })
 })
 
-router.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body
+// ─── VERIFY EMAIL ──────────────────────────────────────────────────
+router.get("/verify-email", (req, res) => {
+  const { token } = req.query
+  const query = `
+    SELECT * FROM auth_tokens 
+    WHERE token = ? AND type = 'verify_email' AND used = FALSE AND expires_at > NOW()
+  `
+  db.query(query, [token], (err, result) => {
+    if (err || result.length === 0)
+      return res.status(400).json({ message: "Lien invalide ou expiré" })
 
-    if (!email || !password) {
-      return res.status(400).json({ message: "Tous les champs sont obligatoires" })
-    }
-
-    const query = "SELECT * FROM users WHERE email = ?"
-
-    db.query(query, [email], async (err, result) => {
-      if (err) return res.status(500).json({ message: "Erreur serveur" })
-
-      if (result.length === 0) {
-        return res.status(401).json({ message: "Email ou mot de passe incorrect" })
-      }
-
-      const user = result[0]
-      const isMatch = await bcrypt.compare(password, user.password)
-
-      if (!isMatch) {
-        return res.status(401).json({ message: "Email ou mot de passe incorrect" })
-      }
-
-      const token = jwt.sign(
-        { id: user.id, role: user.role },
-        process.env.JWT_SECRET,
-        { expiresIn: "7d" }
-      )
-
-      res.status(200).json({
-        message: "Connexion réussie",
-        token,
-        user: { id: user.id, nom: user.nom, email: user.email, role: user.role }
-      })
-    })
-  } catch (error) {
-    console.log(error)
-    res.status(500).json({ message: "Erreur serveur" })
-  }
+    const { user_id, id } = result[0]
+    db.query("UPDATE users SET email_verified = TRUE, email_verified_at = NOW() WHERE id = ?", [user_id])
+    db.query("UPDATE auth_tokens SET used = TRUE WHERE id = ?", [id])
+    res.json({ message: "Email vérifié avec succès !" })
+  })
 })
 
-module.exports = router
+// ─── LOGIN : vérifie que l'email est confirmé ──────────────────────
+// Dans ton handler login existant, après isMatch, ajoute :
+if (!user.email_verified) {
+  return res.status(403).json({ message: "Confirme ton email avant de te connecter." })
+}
+
+// ─── FORGOT PASSWORD ───────────────────────────────────────────────
+router.post("/forgot-password", (req, res) => {
+  const { email } = req.body
+  db.query("SELECT * FROM users WHERE email = ?", [email], async (err, result) => {
+    if (err || result.length === 0)
+      return res.json({ message: "Si cet email existe, un lien a été envoyé." }) // Sécurité : ne pas révéler
+
+    const token = generateToken()
+    await saveToken(result[0].id, token, "reset_password", 1)
+    await sendResetPasswordEmail(email, token)
+    res.json({ message: "Si cet email existe, un lien a été envoyé." })
+  })
+})
+
+// ─── RESET PASSWORD ────────────────────────────────────────────────
+router.post("/reset-password", async (req, res) => {
+  const { token, newPassword } = req.body
+  const query = `
+    SELECT * FROM auth_tokens 
+    WHERE token = ? AND type = 'reset_password' AND used = FALSE AND expires_at > NOW()
+  `
+  db.query(query, [token], async (err, result) => {
+    if (err || result.length === 0)
+      return res.status(400).json({ message: "Lien invalide ou expiré" })
+
+    const hashed = await bcrypt.hash(newPassword, 10)
+    db.query("UPDATE users SET password = ? WHERE id = ?", [hashed, result[0].user_id])
+    db.query("UPDATE auth_tokens SET used = TRUE WHERE id = ?", [result[0].id])
+    res.json({ message: "Mot de passe mis à jour." })
+  })
+})
