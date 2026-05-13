@@ -1,12 +1,17 @@
+const express = require("express")
+const router = express.Router()
+const bcrypt = require("bcrypt")
+const jwt = require("jsonwebtoken")
 const crypto = require("crypto")
+const db = require("../db")
 const { sendVerificationEmail, sendResetPasswordEmail } = require("../services/emailService")
 
-// Génère un token sécurisé
+// ─── HELPERS ──────────────────────────────────────────────────────
+
 function generateToken() {
   return crypto.randomBytes(32).toString("hex")
 }
 
-// Sauvegarde un token en DB
 function saveToken(userId, token, type, expiresInHours) {
   return new Promise((resolve, reject) => {
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
@@ -18,22 +23,42 @@ function saveToken(userId, token, type, expiresInHours) {
   })
 }
 
-// ─── REGISTER : envoie un email de vérification ───────────────────
+// ─── REGISTER ─────────────────────────────────────────────────────
+
 router.post("/register", async (req, res) => {
-  // ... ton code existant jusqu'à l'insertion ...
-  db.query(insertQuery, [username, email, hashedPassword], async (err, result) => {
-    if (err) return res.status(500).json({ message: "Erreur insertion utilisateur" })
+  const { username, email, password } = req.body
 
-    // Nouveau : envoie l'email de vérification
-    const token = generateToken()
-    await saveToken(result.insertId, token, "verify_email", 24)
-    await sendVerificationEmail(email, token)
+  if (!username || !email || !password) {
+    return res.status(400).json({ message: "Tous les champs sont obligatoires." })
+  }
 
-    res.status(201).json({ message: "Compte créé. Vérifie ton email pour l'activer." })
-  })
+  try {
+    // Check if email already exists
+    db.query("SELECT id FROM users WHERE email = ?", [email], async (err, result) => {
+      if (err) return res.status(500).json({ message: "Erreur serveur" })
+      if (result.length > 0) return res.status(409).json({ message: "Cet email est déjà utilisé." })
+
+      const hashedPassword = await bcrypt.hash(password, 10)
+      const insertQuery = "INSERT INTO users (nom, email, password) VALUES (?, ?, ?)"
+
+      db.query(insertQuery, [username, email, hashedPassword], async (err, result) => {
+        if (err) return res.status(500).json({ message: "Erreur lors de la création du compte." })
+
+        const token = generateToken()
+        await saveToken(result.insertId, token, "verify_email", 24)
+        await sendVerificationEmail(email, token)
+
+        res.status(201).json({ message: "Compte créé. Vérifie ton email pour l'activer." })
+      })
+    })
+  } catch (err) {
+    console.error("Erreur register:", err)
+    res.status(500).json({ message: "Erreur serveur" })
+  }
 })
 
-// ─── VERIFY EMAIL ──────────────────────────────────────────────────
+// ─── VERIFY EMAIL ─────────────────────────────────────────────────
+
 router.get("/verify-email", (req, res) => {
   const { token } = req.query
   const query = `
@@ -51,29 +76,59 @@ router.get("/verify-email", (req, res) => {
   })
 })
 
-// ─── LOGIN : vérifie que l'email est confirmé ──────────────────────
-// Dans ton handler login existant, après isMatch, ajoute :
-if (!user.email_verified) {
-  return res.status(403).json({ message: "Confirme ton email avant de te connecter." })
-}
+// ─── LOGIN ────────────────────────────────────────────────────────
 
-// ─── FORGOT PASSWORD ───────────────────────────────────────────────
+router.post("/login", (req, res) => {
+  const { email, password } = req.body
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email et mot de passe requis." })
+  }
+
+  db.query("SELECT * FROM users WHERE email = ?", [email], async (err, result) => {
+    if (err) return res.status(500).json({ message: "Erreur serveur" })
+    if (result.length === 0) return res.status(401).json({ message: "Identifiants incorrects." })
+
+    const user = result[0]
+
+    const isMatch = await bcrypt.compare(password, user.password)
+    if (!isMatch) return res.status(401).json({ message: "Identifiants incorrects." })
+
+    if (!user.email_verified) {
+      return res.status(403).json({ message: "Confirme ton email avant de te connecter." })
+    }
+
+    const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: "7d" })
+    res.json({ message: "Connexion réussie", token, user: { id: user.id, nom: user.nom, email: user.email } })
+  })
+})
+
+// ─── FORGOT PASSWORD ──────────────────────────────────────────────
+
 router.post("/forgot-password", (req, res) => {
   const { email } = req.body
+
   db.query("SELECT * FROM users WHERE email = ?", [email], async (err, result) => {
     if (err || result.length === 0)
-      return res.json({ message: "Si cet email existe, un lien a été envoyé." }) // Sécurité : ne pas révéler
+      return res.json({ message: "Si cet email existe, un lien a été envoyé." })
 
-    const token = generateToken()
-    await saveToken(result[0].id, token, "reset_password", 1)
-    await sendResetPasswordEmail(email, token)
+    try {
+      const token = generateToken()
+      await saveToken(result[0].id, token, "reset_password", 1)
+      await sendResetPasswordEmail(email, token)
+    } catch (e) {
+      console.error("Erreur forgot-password:", e)
+    }
+
     res.json({ message: "Si cet email existe, un lien a été envoyé." })
   })
 })
 
-// ─── RESET PASSWORD ────────────────────────────────────────────────
+// ─── RESET PASSWORD ───────────────────────────────────────────────
+
 router.post("/reset-password", async (req, res) => {
   const { token, newPassword } = req.body
+
   const query = `
     SELECT * FROM auth_tokens 
     WHERE token = ? AND type = 'reset_password' AND used = FALSE AND expires_at > NOW()
@@ -82,9 +137,15 @@ router.post("/reset-password", async (req, res) => {
     if (err || result.length === 0)
       return res.status(400).json({ message: "Lien invalide ou expiré" })
 
-    const hashed = await bcrypt.hash(newPassword, 10)
-    db.query("UPDATE users SET password = ? WHERE id = ?", [hashed, result[0].user_id])
-    db.query("UPDATE auth_tokens SET used = TRUE WHERE id = ?", [result[0].id])
-    res.json({ message: "Mot de passe mis à jour." })
+    try {
+      const hashed = await bcrypt.hash(newPassword, 10)
+      db.query("UPDATE users SET password = ? WHERE id = ?", [hashed, result[0].user_id])
+      db.query("UPDATE auth_tokens SET used = TRUE WHERE id = ?", [result[0].id])
+      res.json({ message: "Mot de passe mis à jour." })
+    } catch (e) {
+      res.status(500).json({ message: "Erreur lors de la mise à jour du mot de passe." })
+    }
   })
 })
+
+module.exports = router
