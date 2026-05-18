@@ -12,15 +12,10 @@ function generateToken() {
   return crypto.randomBytes(32).toString("hex")
 }
 
-function saveToken(userId, token, type, expiresInHours) {
-  return new Promise((resolve, reject) => {
-    const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
-    const query = "INSERT INTO auth_tokens (user_id, token, type, expires_at) VALUES (?, ?, ?, ?)"
-    db.query(query, [userId, token, type, expiresAt], (err) => {
-      if (err) reject(err)
-      else resolve()
-    })
-  })
+async function saveToken(userId, token, type, expiresInHours) {
+  const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
+  const query = "INSERT INTO auth_tokens (user_id, token, type, expires_at) VALUES ($1, $2, $3, $4)"
+  await db.query(query, [userId, token, type, expiresAt])
 }
 
 // ─── REGISTER ─────────────────────────────────────────────────────
@@ -33,24 +28,22 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // Check if email already exists
-    db.query("SELECT id FROM users WHERE email = ?", [email], async (err, result) => {
-      if (err) return res.status(500).json({ message: "Erreur serveur" })
-      if (result.length > 0) return res.status(409).json({ message: "Cet email est déjà utilisé." })
+    const existing = await db.query("SELECT id FROM users WHERE email = $1", [email])
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ message: "Cet email est déjà utilisé." })
+    }
 
-      const hashedPassword = await bcrypt.hash(password, 10)
-      const insertQuery = "INSERT INTO users (nom, email, password) VALUES (?, ?, ?)"
+    const hashedPassword = await bcrypt.hash(password, 10)
+    const result = await db.query(
+      "INSERT INTO users (nom, email, password) VALUES ($1, $2, $3) RETURNING id",
+      [username, email, hashedPassword]
+    )
 
-      db.query(insertQuery, [username, email, hashedPassword], async (err, result) => {
-        if (err) return res.status(500).json({ message: "Erreur lors de la création du compte." })
+    const token = generateToken()
+    await saveToken(result.rows[0].id, token, "verify_email", 24)
+    await sendVerificationEmail(email, token)
 
-        const token = generateToken()
-        await saveToken(result.insertId, token, "verify_email", 24)
-        await sendVerificationEmail(email, token)
-
-        res.status(201).json({ message: "Compte créé. Vérifie ton email pour l'activer." })
-      })
-    })
+    res.status(201).json({ message: "Compte créé. Vérifie ton email pour l'activer." })
   } catch (err) {
     console.error("Erreur register:", err)
     res.status(500).json({ message: "Erreur serveur" })
@@ -59,37 +52,48 @@ router.post("/register", async (req, res) => {
 
 // ─── VERIFY EMAIL ─────────────────────────────────────────────────
 
-router.get("/verify-email", (req, res) => {
+router.get("/verify-email", async (req, res) => {
   const { token } = req.query
-  const query = `
-    SELECT * FROM auth_tokens 
-    WHERE token = ? AND type = 'verify_email' AND used = FALSE AND expires_at > NOW()
-  `
-  db.query(query, [token], (err, result) => {
-    if (err || result.length === 0)
-      return res.status(400).json({ message: "Lien invalide ou expiré" })
 
-    const { user_id, id } = result[0]
-    db.query("UPDATE users SET email_verified = TRUE, email_verified_at = NOW() WHERE id = ?", [user_id])
-    db.query("UPDATE auth_tokens SET used = TRUE WHERE id = ?", [id])
+  try {
+    const result = await db.query(
+      `SELECT * FROM auth_tokens 
+       WHERE token = $1 AND type = 'verify_email' AND used = FALSE AND expires_at > NOW()`,
+      [token]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ message: "Lien invalide ou expiré" })
+    }
+
+    const { user_id, id } = result.rows[0]
+    await db.query("UPDATE users SET email_verified = TRUE, email_verified_at = NOW() WHERE id = $1", [user_id])
+    await db.query("UPDATE auth_tokens SET used = TRUE WHERE id = $1", [id])
+
     res.json({ message: "Email vérifié avec succès !" })
-  })
+  } catch (err) {
+    console.error("Erreur verify-email:", err)
+    res.status(500).json({ message: "Erreur serveur" })
+  }
 })
 
 // ─── LOGIN ────────────────────────────────────────────────────────
 
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const { email, password } = req.body
 
   if (!email || !password) {
     return res.status(400).json({ message: "Email et mot de passe requis." })
   }
 
-  db.query("SELECT * FROM users WHERE email = ?", [email], async (err, result) => {
-    if (err) return res.status(500).json({ message: "Erreur serveur" })
-    if (result.length === 0) return res.status(401).json({ message: "Identifiants incorrects." })
+  try {
+    const result = await db.query("SELECT * FROM users WHERE email = $1", [email])
 
-    const user = result[0]
+    if (result.rows.length === 0) {
+      return res.status(401).json({ message: "Identifiants incorrects." })
+    }
+
+    const user = result.rows[0]
 
     const isMatch = await bcrypt.compare(password, user.password)
     if (!isMatch) return res.status(401).json({ message: "Identifiants incorrects." })
@@ -100,28 +104,31 @@ router.post("/login", (req, res) => {
 
     const token = jwt.sign({ id: user.id, email: user.email }, process.env.JWT_SECRET, { expiresIn: "7d" })
     res.json({ message: "Connexion réussie", token, user: { id: user.id, nom: user.nom, email: user.email } })
-  })
+  } catch (err) {
+    console.error("Erreur login:", err)
+    res.status(500).json({ message: "Erreur serveur" })
+  }
 })
 
 // ─── FORGOT PASSWORD ──────────────────────────────────────────────
 
-router.post("/forgot-password", (req, res) => {
+router.post("/forgot-password", async (req, res) => {
   const { email } = req.body
 
-  db.query("SELECT * FROM users WHERE email = ?", [email], async (err, result) => {
-    if (err || result.length === 0)
-      return res.json({ message: "Si cet email existe, un lien a été envoyé." })
+  try {
+    const result = await db.query("SELECT * FROM users WHERE email = $1", [email])
 
-    try {
+    if (result.rows.length > 0) {
       const token = generateToken()
-      await saveToken(result[0].id, token, "reset_password", 1)
+      await saveToken(result.rows[0].id, token, "reset_password", 1)
       await sendResetPasswordEmail(email, token)
-    } catch (e) {
-      console.error("Erreur forgot-password:", e)
     }
 
     res.json({ message: "Si cet email existe, un lien a été envoyé." })
-  })
+  } catch (err) {
+    console.error("Erreur forgot-password:", err)
+    res.json({ message: "Si cet email existe, un lien a été envoyé." })
+  }
 })
 
 // ─── RESET PASSWORD ───────────────────────────────────────────────
@@ -129,23 +136,26 @@ router.post("/forgot-password", (req, res) => {
 router.post("/reset-password", async (req, res) => {
   const { token, newPassword } = req.body
 
-  const query = `
-    SELECT * FROM auth_tokens 
-    WHERE token = ? AND type = 'reset_password' AND used = FALSE AND expires_at > NOW()
-  `
-  db.query(query, [token], async (err, result) => {
-    if (err || result.length === 0)
-      return res.status(400).json({ message: "Lien invalide ou expiré" })
+  try {
+    const result = await db.query(
+      `SELECT * FROM auth_tokens 
+       WHERE token = $1 AND type = 'reset_password' AND used = FALSE AND expires_at > NOW()`,
+      [token]
+    )
 
-    try {
-      const hashed = await bcrypt.hash(newPassword, 10)
-      db.query("UPDATE users SET password = ? WHERE id = ?", [hashed, result[0].user_id])
-      db.query("UPDATE auth_tokens SET used = TRUE WHERE id = ?", [result[0].id])
-      res.json({ message: "Mot de passe mis à jour." })
-    } catch (e) {
-      res.status(500).json({ message: "Erreur lors de la mise à jour du mot de passe." })
+    if (result.rows.length === 0) {
+      return res.status(400).json({ message: "Lien invalide ou expiré" })
     }
-  })
+
+    const hashed = await bcrypt.hash(newPassword, 10)
+    await db.query("UPDATE users SET password = $1 WHERE id = $2", [hashed, result.rows[0].user_id])
+    await db.query("UPDATE auth_tokens SET used = TRUE WHERE id = $1", [result.rows[0].id])
+
+    res.json({ message: "Mot de passe mis à jour." })
+  } catch (err) {
+    console.error("Erreur reset-password:", err)
+    res.status(500).json({ message: "Erreur lors de la mise à jour du mot de passe." })
+  }
 })
 
 module.exports = router
